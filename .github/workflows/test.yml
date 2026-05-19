@@ -1,0 +1,33 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml playwright
+          # 不装 chromium binary; 测试不打开浏览器
+
+      - name: Run reserve.py unit tests
+        env:
+          TG_BOT_TOKEN: ""
+          TG_CHAT_ID: ""
+        run: pytest tests/ -v --tb=short
