@@ -2,7 +2,103 @@
 
 > civicpermits.com (RIOC) 在 T-2 天 08:00:00 ET 释放预约窗口. 此 bot 提前 5 分钟启动, 到点毫秒级提交.
 
-## 部署清单 (按顺序做完就 ready)
+> 📌 **你在 `public` 分支** — 这是给朋友用的简化版, 通知默认走 macOS 桌面通知中心, 不需要 Telegram bot. 想加 TG 推送看 `.env.example`.
+
+---
+
+## 朋友版部署 (4 步, 大约 30 分钟)
+
+### Step 1 — 装环境 (5 分钟)
+
+```bash
+git clone https://github.com/edwardchu-studio/court-bot.git
+cd court-bot
+git checkout public
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/playwright install chromium
+cp .env.example .env             # 默认 NOTIFY_PROVIDER=desktop, 不用改
+```
+
+### Step 2 — 一次性登录 (5 分钟)
+
+```bash
+.venv/bin/python login_persist.py
+```
+
+→ 弹出 Chromium 窗口
+→ 你手动用 civicpermits 账号登录
+→ 登录后切回终端按 [Enter]
+→ `auth.json` 生成 (含 session cookies, **不要发给别人**)
+→ 30 天后过期, 到时重跑此脚本
+
+### Step 3 — 探测你想抢的 Court UUID (5 分钟)
+
+```bash
+.venv/bin/python probe_courts.py
+```
+
+→ 列出所有 Tennis Court 的 UUID
+→ 复制你想抢的 court 的 UUID
+→ 粘贴进 `config.yaml` 的 `location_uuid` 字段 (替换掉 TODO 占位符)
+
+### Step 4 — 填 config.yaml (10 分钟)
+
+打开 `config.yaml`, 改这两块:
+
+**(a) `permit_answers`** — 把所有 `TODO:` 字段改成你的真实情况. RIOC 审核会看, 别照抄别人的:
+
+```yaml
+permit_answers:
+  activity_description: "Casual tennis with my partner"
+  num_people: "2"
+  prior_permit: "No"     # 你以前是否在 RIOC 申过 permit
+  # 其他字段保留默认即可
+```
+
+**(b) `preferences`** — 调整你想抢的时段优先级 (从高到低):
+
+```yaml
+preferences:
+  - { start_hour: 18, end_hour: 19, label: "6-7 PM" }    # 最优先
+  - { start_hour: 19, end_hour: 20, label: "7-8 PM" }
+```
+
+### Step 5 — 测试 + 部署
+
+**dry-run 测试** (跑一次但不真 submit):
+
+```bash
+.venv/bin/python reserve.py --no-submit --now --date 2026-05-20
+```
+
+应该看到桌面通知"🎾 court-bot 启动" + 浏览器自动填表 + dry-run 截图存到 `logs/`.
+
+**定时跑** — 每天 07:55 ET 自动触发. 用 crontab (跨平台) 或 launchd (macOS, 见下面的高级章节).
+
+```bash
+crontab -e
+# 加这一行 (Mac 系统时间是 ET 的话):
+55 7 * * * cd ~/court-bot && .venv/bin/python reserve.py >> logs/cron.log 2>&1
+```
+
+> ⚠️ Mac 必须**不能进入 sleep** (08:00 触发时屏幕可以锁, 但 CPU 必须醒着). 系统偏好 → 节能 → 关闭 "电池 / 电源适配器 sleep". 或买个 caffeinate 之类的工具撑着.
+
+### 故障排查 (朋友版)
+
+| 症状 | 排查 |
+|---|---|
+| 看不到桌面通知 | 系统偏好 → 通知 → 允许 Script Editor / osascript 发通知; 或改成 `NOTIFY_PROVIDER=telegram` |
+| `RuntimeError: cookies 失效` | 重跑 `login_persist.py` |
+| `RuntimeError: 找不到 facility listitem` | RIOC 改版了, selector 失效. 联系我或自己跑 `playwright codegen` 录新的 |
+| 表全填完但没 submit | dry-run 模式 (`--no-submit`), 把这个 flag 去掉就真 submit 了 |
+| 抢同一个 court 互相挤压 | 跟你朋友约好不同 `location_uuid` 或不同 `preferences` |
+
+> ⚠️ **ToS 提醒**: 自动化抢自己用的 1 个 slot 通常 OK. 别帮陌生人抢、别一人占多个、别提高 `max_attempts`. 被封号联系 RIOC 人工解封.
+
+---
+
+## 高级 / 原作者部署清单 (按顺序做完就 ready)
 
 ### ✅ Step 1 — 我已做完
 - 项目骨架 `~/projects/court-bot/`

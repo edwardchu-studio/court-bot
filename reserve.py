@@ -17,7 +17,9 @@ import re
 import sys
 import time
 import json
+import shutil
 import logging
+import subprocess
 import traceback
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -48,14 +50,14 @@ log = logging.getLogger("reserve")
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT = os.environ.get("TG_CHAT_ID", "")
+NOTIFY_PROVIDER = os.environ.get("NOTIFY_PROVIDER", "desktop").lower()
 
 
 # ═══════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════
 
-def tg_push(msg: str) -> None:
-    """推 Telegram. 失败不抛, 但 log 完整 status / response body 用于诊断."""
+def _notify_telegram(msg: str) -> None:
     log.info("TG push 准备发送 (token=%s chat=%s)",
              (TG_TOKEN[:12] + "...") if TG_TOKEN else "❌空", TG_CHAT or "❌空")
     if not (TG_TOKEN and TG_CHAT):
@@ -70,6 +72,40 @@ def tg_push(msg: str) -> None:
         log.info("TG push status=%d body=%s", resp.status_code, resp.text[:120])
     except Exception as e:
         log.warning("TG push exception: %s", e)
+
+
+def _notify_desktop(msg: str) -> None:
+    """macOS 桌面通知 (osascript) + stdout. osascript 不可用时 fallback 纯 print."""
+    print(f"[court-bot] {msg}", flush=True)
+    if sys.platform != "darwin" or not shutil.which("osascript"):
+        return
+    # 通知中心只显示一行, 取首行 (去掉 markdown 加粗符号) + 截断
+    first = msg.split("\n")[0].replace("*", "").strip()[:180]
+    # AppleScript 字面量需要把 " 转 \" — 用 subprocess arg 列表避免 shell 注入
+    safe = first.replace("\\", "\\\\").replace('"', '\\"')
+    try:
+        subprocess.run(
+            ["osascript", "-e",
+             f'display notification "{safe}" with title "court-bot"'],
+            timeout=3, check=False,
+        )
+    except Exception as e:
+        log.warning("desktop notify failed: %s", e)
+
+
+def tg_push(msg: str) -> None:
+    """统一通知入口. NOTIFY_PROVIDER env: 'desktop'(默认) | 'telegram' | 'both'.
+
+    函数名保留 tg_push 是为了向后兼容已有调用点 — 实际路由由 NOTIFY_PROVIDER 决定.
+    失败永远不抛, 不阻塞抢券主流程.
+    """
+    if NOTIFY_PROVIDER == "telegram":
+        _notify_telegram(msg)
+    elif NOTIFY_PROVIDER == "both":
+        _notify_desktop(msg)
+        _notify_telegram(msg)
+    else:
+        _notify_desktop(msg)
 
 
 def wait_until(target: datetime) -> None:

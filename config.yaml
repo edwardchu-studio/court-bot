@@ -11,9 +11,12 @@ release_time:                  # 释放窗口开放时间 (NY local)
   minute: 0
   second: 0
 
-# RIOC civicpermits 固定参数 (从你 codegen 提取)
+# RIOC civicpermits 固定参数
 activity_keyword: "Tennis"
-location_uuid: "3c9230f0-9e2c-4ff0-8ad7-5300eb475af5"
+# location_uuid: 不同 Court 1/2/3/... 各有不同 UUID. 用 probe_courts.py 探测你想抢的 court:
+#   .venv/bin/python probe_courts.py
+# 把对应 UUID 复制到这里 (下面是个 Court 1 的样例, 必须改成你自己想要的!)
+location_uuid: "TODO-RUN-probe_courts.py-AND-PASTE-UUID-HERE"
 facility_listitem_text: "Tennis Courts"
 
 # 偏好时段 (优先级从高到低 — 第一个抢不到自动试下一个)
@@ -25,13 +28,14 @@ preferences:
   - { start_hour: 18, end_hour: 19, label: "6-7 PM" }
 
 # Permit Questions 必填字段答案 (RIOC 要求, 不填 Submit 灰色 disabled)
-# 答案要简短真实, 后续 RIOC 审核可能看, 别写假
+# ⚠️ 必须改成你自己的真实情况! RIOC 审核会看, 多人重复同样答案容易触发 review.
+# prior_permit 尤其要看你过去是否在 RIOC 申过 permit (申过填 "Yes" 并准备说明)
 permit_answers:
-  activity_description: "Recreational tennis play with friends"
-  num_people: "2"
+  activity_description: "TODO: 一句话描述你的活动 (e.g. 'Casual tennis with my partner')"
+  num_people: "TODO: 几个人 (e.g. '2')"
   participants_charged: "No"
   spectators_charged: "No"
-  prior_permit: "No"                 # user 确认: 以前没在 RIOC 申过 permit
+  prior_permit: "TODO: 你以前在 RIOC 申过 permit 吗? Yes/No"
   amplified_sound: "No"
   advertised: "No"
   on_site_security: "No"
