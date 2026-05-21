@@ -32,7 +32,7 @@ permit_answers:
   num_people: "2"
   participants_charged: "No"
   spectators_charged: "No"
-  prior_permit: "No"                 # user 确认: 以前没在 RIOC 申过 permit
+  prior_permit: "Yes"                # 5-14/15/16 已抢成功多次, 写 Yes 与 server 历史一致
   amplified_sound: "No"
   advertised: "No"
   on_site_security: "No"
