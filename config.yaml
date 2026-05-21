@@ -20,7 +20,8 @@ facility_listitem_text: "Tennis Courts"
 # start_hour / end_hour: 24h 制 (9=9AM, 10=10AM, 14=2PM)
 # 默认每段 1 小时 (end = start + 1). 想 2 小时就 end_hour = start_hour + 2.
 preferences:
-  - { start_hour: 16, end_hour: 17, label: "4-5 PM" }    # 最优先
+  - { start_hour: 15, end_hour: 16, label: "3-4 PM" }    # 最优先 (周六目标)
+  - { start_hour: 16, end_hour: 17, label: "4-5 PM" }
   - { start_hour: 17, end_hour: 18, label: "5-6 PM" }
   - { start_hour: 18, end_hour: 19, label: "6-7 PM" }
 
