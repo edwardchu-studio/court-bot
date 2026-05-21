@@ -163,3 +163,44 @@ def test_no_networkidle_wait_until():
         "禁用 wait_until='networkidle' — RIOC 在 08:00 抢券峰永远不会 idle, "
         "页面 timeout 错过窗口 (2026-05-14 事故)."
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 8. FAST PATH (2026-05-21 加): 预热阶段必须走到 #event0 click 打开日历 modal,
+#    fill_form 检测 startHour select 在 → 跳过 navigate (节省 ~10s)
+# ────────────────────────────────────────────────────────────────────────────
+
+# CONTEXT (2026-05-21): 5-21 早上抢 5-23 周六 3-4 PM 全失败. fill_form 第一次跑
+# 要 17s (Activity → Add Facility → #event0 → 日期 → Add & Confirm), 而 RIOC 在
+# release 后 ~10s 内秒光黄金时段. FAST PATH 把 navigate (~10s) 移到 release 前
+# 完成, release 后 fill_form 检测到日历 modal 已开就跳过 navigate. 这两个测试
+# 守这条不退化.
+
+
+def test_warmup_opens_calendar_modal():
+    """main() 预热必须 click #event0 把日历 modal 打开, 否则 FAST PATH 不启用."""
+    src = (ROOT / "reserve.py").read_text()
+    # 预热段必须含 #event0 click + 等 startHour select 出现
+    warmup_section = src[src.find("提前导航 + 预热到日历"):src.find("wait_until(release)")]
+    assert warmup_section, "找不到预热代码段"
+    assert "#event0" in warmup_section, (
+        "预热必须 click '#event0' 把日历 modal 打开 (FAST PATH 关键步骤)"
+    )
+    assert "startHour" in warmup_section, (
+        "预热完成后必须 wait_for_selector startHour, 验证日历 modal 真打开"
+    )
+
+
+def test_fill_form_has_fast_path_detection():
+    """fill_form 开头必须检测 startHour select 是否存在, 决定走 fast/slow path."""
+    src = (ROOT / "reserve.py").read_text()
+    # 找到 fill_form 函数体
+    func_start = src.find("def fill_form(page,")
+    func_end = src.find("def _fill_permit_questions(", func_start)
+    fill_form_src = src[func_start:func_end]
+    assert "is_prewarmed" in fill_form_src, (
+        "fill_form 必须有 is_prewarmed 检测 (FAST PATH 入口)"
+    )
+    assert "startHour" in fill_form_src, (
+        "is_prewarmed 必须用 startHour select 的存在与否作为信号"
+    )
