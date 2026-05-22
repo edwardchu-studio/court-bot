@@ -40,12 +40,8 @@ permit_answers:
 
 # 抢位行为
 max_attempts: 40               # 8:00 后最多重试次数
-retry_interval_ms: 200         # 重试间隔 (2026-05-21: 500 → 200, 增加抢位轮次密度)
+retry_interval_ms: 500         # 重试间隔
 attempt_timeout_sec: 90        # 总超时 (60-90s 内必须出结果)
-
-# Modal keep-alive (FAST PATH 预热到 calendar modal 打开后, 距 release 还有几分钟,
-# 每 N 秒做一次轻交互防止 RIOC 前端 SPA / 服务器 session 把 modal 关掉/超时)
-modal_keepalive_interval_sec: 30
 
 # Telegram 通知 (从 .env 读取 TG_BOT_TOKEN / TG_CHAT_ID)
 notify_on_start: true
