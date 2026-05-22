@@ -204,3 +204,105 @@ def test_fill_form_has_fast_path_detection():
     assert "startHour" in fill_form_src, (
         "is_prewarmed 必须用 startHour select 的存在与否作为信号"
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 9. retry_interval_ms: 2026-05-21 从 500 降到 200, 加速抢位轮次密度
+# ────────────────────────────────────────────────────────────────────────────
+
+# CONTEXT (2026-05-21): 5-21 周六 5-23 抢失败 (3 court × 4 pref × 3 retry = 36
+# 次 1 分多钟内全部 'not available'). retry_interval_ms=500 在 RIOC server
+# 高峰期太慢 — 500ms 内对手可能已经成功. 降到 200 增加单位时间内尝试次数.
+# 测试守这条数值, 避免未来 refactor 不小心改回 500.
+
+
+def test_retry_interval_ms_is_aggressive():
+    """retry_interval_ms 必须 ≤ 300, 高峰期 500 太慢."""
+    import reserve
+    cfg = reserve.load_config()
+    assert "retry_interval_ms" in cfg
+    assert cfg["retry_interval_ms"] <= 300, (
+        f"retry_interval_ms={cfg['retry_interval_ms']} 太大. "
+        f"RIOC 08:00 高峰 500ms 一次 retry 已被对手秒过, 需 ≤ 300."
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 10. wait_until keep-alive (2026-05-21): FAST PATH 预热把 calendar modal 打开
+#     后等到 release 通常 4+ 分钟, modal 可能被 RIOC 前端 idle 关掉. wait_until
+#     必须支持可选 keep_alive 回调, 每 30s 触发一次保活.
+# ────────────────────────────────────────────────────────────────────────────
+
+# CONTEXT (2026-05-21): 5-21 commit 7586485 加了 FAST PATH 预热到 calendar modal,
+# 但手动测试是 --now 触发 (release 即刻), 没经历 5 分钟空闲考验. launchd 模式下
+# 07:55 启动 → 07:55:12 modal 打开 → 闲置到 08:00:00 → modal 是否还在? 加 keep_alive
+# 回调防御.
+
+
+def test_wait_until_accepts_keep_alive_callback():
+    """wait_until 必须有 keep_alive 可选参数."""
+    import inspect
+    import reserve
+    sig = inspect.signature(reserve.wait_until)
+    assert "keep_alive" in sig.parameters, (
+        "wait_until 必须有 keep_alive 参数 (FAST PATH modal 保活)"
+    )
+    assert "keep_alive_interval" in sig.parameters, (
+        "wait_until 必须有 keep_alive_interval 参数控制保活频率"
+    )
+
+
+def test_wait_until_triggers_keep_alive_periodically():
+    """wait_until 在长等待期间应每 keep_alive_interval 秒触发一次回调."""
+    import reserve
+
+    target = datetime.now(reserve.NY) + timedelta(seconds=3.5)
+    calls = []
+    def _ka():
+        calls.append(datetime.now(reserve.NY))
+    reserve.wait_until(target, keep_alive=_ka, keep_alive_interval=1.0)
+
+    # 3.5 秒等待, interval=1s → 期望 ~3 次保活 (允许 1-4)
+    assert 1 <= len(calls) <= 4, (
+        f"keep_alive 调用次数 {len(calls)} 异常 (期望 3.5s/1s ≈ 3 次)"
+    )
+
+
+def test_wait_until_swallows_keep_alive_exception():
+    """keep_alive 回调抛异常不能中断 wait_until — 保活是 non-fatal."""
+    import reserve
+
+    target = datetime.now(reserve.NY) + timedelta(seconds=1.5)
+    def _bad_ka():
+        raise RuntimeError("simulated network blip")
+    t0 = datetime.now(reserve.NY)
+    reserve.wait_until(target, keep_alive=_bad_ka, keep_alive_interval=0.3)
+    elapsed = (datetime.now(reserve.NY) - t0).total_seconds()
+    assert elapsed >= 1.4, "wait_until 应忽略 keep_alive 异常, 继续等到 target"
+
+
+def test_main_passes_keep_alive_to_wait_until():
+    """main 流程必须给 wait_until 传 page.evaluate 保活."""
+    src = (ROOT / "reserve.py").read_text()
+    # wait_until(release, ...) 调用必须带 keep_alive
+    main_section = src[src.find("提前导航 + 预热到日历"):src.find("到点! 开始 fill_form")]
+    assert "wait_until(release" in main_section, "找不到 wait_until(release) 调用"
+    assert "keep_alive" in main_section, (
+        "main 调 wait_until 必须传 keep_alive 保活 (FAST PATH modal 长闲置防御)"
+    )
+    assert "page.evaluate" in main_section or "page.mouse" in main_section, (
+        "keep_alive 必须做点轻量 Playwright 交互 (page.evaluate 或 mouse.move)"
+    )
+
+
+def test_modal_keepalive_interval_in_config():
+    """config.yaml 必须有 modal_keepalive_interval_sec 字段."""
+    import reserve
+    cfg = reserve.load_config()
+    assert "modal_keepalive_interval_sec" in cfg, (
+        "config.yaml 缺 modal_keepalive_interval_sec (FAST PATH 保活节奏配置)"
+    )
+    assert 10 <= cfg["modal_keepalive_interval_sec"] <= 120, (
+        f"modal_keepalive_interval_sec={cfg['modal_keepalive_interval_sec']} 不合理. "
+        f"太短浪费 CDP, 太长 RIOC SPA 可能已 timeout."
+    )

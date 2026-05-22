@@ -72,14 +72,31 @@ def tg_push(msg: str) -> None:
         log.warning("TG push exception: %s", e)
 
 
-def wait_until(target: datetime) -> None:
-    """忙等到 target_time, 毫秒级精度."""
+def wait_until(target: datetime, keep_alive=None, keep_alive_interval: float = 30.0) -> None:
+    """忙等到 target_time, 毫秒级精度.
+
+    可选 keep_alive 回调 — 每隔 keep_alive_interval 秒触发一次, 用于在长等待
+    期间维持外部状态 (如 Playwright modal 不被 RIOC 前端 idle 关掉). 回调任何
+    异常都 swallow (保活非 fatal, 不能因此放弃抢位).
+    """
+    last_ka = datetime.now(NY)
     while True:
-        diff = (target - datetime.now(NY)).total_seconds()
+        now = datetime.now(NY)
+        diff = (target - now).total_seconds()
         if diff <= 0:
             return
+        # 距 target > 2s 时按 keep_alive_interval 触发保活
+        if keep_alive is not None and diff > 2 \
+                and (now - last_ka).total_seconds() >= keep_alive_interval:
+            try:
+                keep_alive()
+            except Exception as e:
+                log.debug("keep_alive 回调失败 (non-fatal): %s", str(e)[:120])
+            last_ka = datetime.now(NY)
         if diff > 2:
-            time.sleep(diff - 1)   # 远距离粗等
+            # 远距离粗等, 但不超过 keep_alive_interval, 否则保活会延迟
+            cap = max(0.1, keep_alive_interval - 0.5) if keep_alive else (diff - 1)
+            time.sleep(min(diff - 1, cap))
         elif diff > 0.05:
             time.sleep(0.01)       # 近距离精细忙等
         else:
@@ -546,8 +563,20 @@ def main() -> int:
                         log.warning("SLOW PATH fallback 也失败 (non-fatal): %s", str(e2)[:80])
             except PlaywrightTimeoutError:
                 log.warning("提前导航 timeout, 继续等到点再尝试")
-            wait_until(release)
-            log.info("⏰ 到点! 开始 fill_form + submit")
+
+            # FAST PATH 预热把 calendar modal 打开后距 release 通常还有 4+ 分钟.
+            # RIOC 前端 SPA 可能因 idle 把 modal 关掉, 或 server session 超时.
+            # 每 modal_keepalive_interval_sec 秒做一次零成本 JS 求值保活.
+            ka_interval = float(cfg.get("modal_keepalive_interval_sec", 30))
+            ka_count = [0]
+            def _keep_alive():
+                # page.evaluate("1") 是 Playwright 最轻的交互, 仅触发一次 CDP 命令,
+                # 不改变 DOM/状态, 但能让浏览器 / RIOC SPA 视为"活动".
+                page.evaluate("1")
+                ka_count[0] += 1
+            wait_until(release, keep_alive=_keep_alive, keep_alive_interval=ka_interval)
+            log.info("⏰ 到点! 开始 fill_form + submit (期间 keep-alive 触发 %d 次)",
+                     ka_count[0])
 
             # 尝试第一个偏好 — 每个 preference 给 N 次 retry (default 3) 再切下一个
             # 因为 08:00:00 那刻 RIOC server 可能短暂 overload (#event0 渲染卡 30s),
