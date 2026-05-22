@@ -128,102 +128,93 @@ def fill_form(page, target_date_iso: str, start_hour: int, end_hour: int,
     log.info("fill_form: date=%s (day=%d) start_hour=%d activity=%s",
              target_date_iso, target.day, start_hour, activity_keyword)
 
-    # FAST PATH 检测 (2026-05-21 加): 预热阶段如果已经 click 到 #event0 打开日历 modal,
-    # startHour select 会出现. 这种情况跳过整个 navigate (Activity → Location → Add Facility
-    # → listitem → #event0), 节省 ~10 秒. 是 5-21 早抢失败 (17s 太慢, 3-4 PM 被秒) 的关键修复.
-    # 检测信号: 日历 modal 里独有的 select[name="startHour"]. 不在 = 没打开 = slow path.
-    is_prewarmed = page.locator('select[name="startHour"]').count() > 0
-    if is_prewarmed:
-        log.info("✓ FAST PATH: 日历 modal 已开, 跳过 navigate (节省 ~10s)")
-    else:
-        log.info("SLOW PATH: 从头 navigate (预热未到日历 modal 或已被关闭)")
-        # 1. 导航到 New Permit — 仅在 URL 不对时 goto, 用 domcontentloaded (不等 networkidle,
-        # 抢位高峰 server 不会 idle, networkidle 永远等不到)
-        if "/Permits/New" not in page.url:
-            try:
-                page.goto("https://rioc.civicpermits.com/Permits/New",
-                          wait_until="domcontentloaded", timeout=15000)
-            except PlaywrightTimeoutError:
-                log.warning("goto timeout 15s, 但页面可能已部分加载, 继续")
-        if "/Account/Login" in page.url or "/Login" in page.url:
-            raise RuntimeError("cookies 失效, 跳到登录页. 请重跑 login_persist.py")
+    # 1. 导航到 New Permit — 仅在 URL 不对时 goto, 用 domcontentloaded (不等 networkidle,
+    # 抢位高峰 server 不会 idle, networkidle 永远等不到)
+    if "/Permits/New" not in page.url:
+        try:
+            page.goto("https://rioc.civicpermits.com/Permits/New",
+                      wait_until="domcontentloaded", timeout=15000)
+        except PlaywrightTimeoutError:
+            log.warning("goto timeout 15s, 但页面可能已部分加载, 继续")
+    if "/Account/Login" in page.url or "/Login" in page.url:
+        raise RuntimeError("cookies 失效, 跳到登录页. 请重跑 login_persist.py")
 
-        # 2. Activity (填 Tennis 触发自动联想/搜索)
-        page.get_by_role("textbox", name="Activity", exact=True).click()
+    # 2. Activity (填 Tennis 触发自动联想/搜索)
+    page.get_by_role("textbox", name="Activity", exact=True).click()
+    page.get_by_role("textbox", name="Activity", exact=True).fill(activity_keyword)
+
+    # 3. Location Requested 下拉选 UUID
+    page.get_by_label("Location Requested").select_option(location_uuid)
+
+    # 4. Add Facility — Modal 偶尔不弹, 用 3 次 click retry + 加长等待
+    page.wait_for_load_state("domcontentloaded", timeout=10000)
+    time.sleep(1.5)  # 给 JS handler 异步绑定时间
+
+    add_btn = page.get_by_role("button", name="Add Facility")
+    add_btn.wait_for(state="visible", timeout=10000)
+
+    # 5. retry click Add Facility — 3 次直接 click; 仍失败则 reload page 重做前置步骤再试
+    log.info("找 facility listitem '%s'...", facility_text)
+    facility_locator = page.get_by_role("listitem").filter(
+        has_text=re.compile(facility_text, re.I)
+    )
+
+    def _try_click_add_facility(max_clicks=4, wait_per_click_sec=1.5):
+        """快速 retry: 每次 click 后只等 1.5s (而非 4s), 4 次 click 共 6s + reload."""
+        for click_try in range(max_clicks):
+            try:
+                add_btn.scroll_into_view_if_needed()
+                add_btn.hover()
+                time.sleep(0.15)
+                add_btn.click(force=True)
+            except Exception as e:
+                log.warning("Add Facility click %d 失败: %s", click_try + 1, str(e)[:80])
+            # 快速轮询: 每 250ms 检查一次, 共 wait_per_click_sec
+            elapsed = 0
+            while elapsed < wait_per_click_sec:
+                if facility_locator.count() > 0:
+                    return True
+                time.sleep(0.25)
+                elapsed += 0.25
+        return False
+
+    if not _try_click_add_facility():
+        # 第一轮 4 次 click (6s) 失败 → reload 页面 + 重做 Activity/Location, 再试 1 轮
+        log.warning("Add Facility 4 次未弹 modal — reload + 重试")
+        try:
+            page.reload(wait_until="domcontentloaded", timeout=10000)
+        except PlaywrightTimeoutError:
+            log.warning("reload timeout, 继续")
+        time.sleep(1.5)
         page.get_by_role("textbox", name="Activity", exact=True).fill(activity_keyword)
-
-        # 3. Location Requested 下拉选 UUID
         page.get_by_label("Location Requested").select_option(location_uuid)
-
-        # 4. Add Facility — Modal 偶尔不弹, 用 3 次 click retry + 加长等待
-        page.wait_for_load_state("domcontentloaded", timeout=10000)
-        time.sleep(1.5)  # 给 JS handler 异步绑定时间
-
+        time.sleep(1.5)
         add_btn = page.get_by_role("button", name="Add Facility")
-        add_btn.wait_for(state="visible", timeout=10000)
-
-        # 5. retry click Add Facility — 3 次直接 click; 仍失败则 reload page 重做前置步骤再试
-        log.info("找 facility listitem '%s'...", facility_text)
-        facility_locator = page.get_by_role("listitem").filter(
-            has_text=re.compile(facility_text, re.I)
-        )
-
-        def _try_click_add_facility(max_clicks=4, wait_per_click_sec=1.5):
-            """快速 retry: 每次 click 后只等 1.5s (而非 4s), 4 次 click 共 6s + reload."""
-            for click_try in range(max_clicks):
-                try:
-                    add_btn.scroll_into_view_if_needed()
-                    add_btn.hover()
-                    time.sleep(0.15)
-                    add_btn.click(force=True)
-                except Exception as e:
-                    log.warning("Add Facility click %d 失败: %s", click_try + 1, str(e)[:80])
-                # 快速轮询: 每 250ms 检查一次, 共 wait_per_click_sec
-                elapsed = 0
-                while elapsed < wait_per_click_sec:
-                    if facility_locator.count() > 0:
-                        return True
-                    time.sleep(0.25)
-                    elapsed += 0.25
-            return False
-
+        add_btn.wait_for(state="visible", timeout=8000)
         if not _try_click_add_facility():
-            # 第一轮 4 次 click (6s) 失败 → reload 页面 + 重做 Activity/Location, 再试 1 轮
-            log.warning("Add Facility 4 次未弹 modal — reload + 重试")
-            try:
-                page.reload(wait_until="domcontentloaded", timeout=10000)
-            except PlaywrightTimeoutError:
-                log.warning("reload timeout, 继续")
-            time.sleep(1.5)
-            page.get_by_role("textbox", name="Activity", exact=True).fill(activity_keyword)
-            page.get_by_label("Location Requested").select_option(location_uuid)
-            time.sleep(1.5)
-            add_btn = page.get_by_role("button", name="Add Facility")
-            add_btn.wait_for(state="visible", timeout=8000)
-            if not _try_click_add_facility():
-                screenshot(page, "add_facility_unrecoverable")
-                raise RuntimeError("Add Facility 即使 reload 后 8 次 click 都没弹 modal")
-        cnt = facility_locator.count()
-        log.info("Add Facility 成功, listitem cnt=%d", cnt)
+            screenshot(page, "add_facility_unrecoverable")
+            raise RuntimeError("Add Facility 即使 reload 后 8 次 click 都没弹 modal")
+    cnt = facility_locator.count()
+    log.info("Add Facility 成功, listitem cnt=%d", cnt)
 
-        log.info("找到 %d 个匹配 '%s' 的 listitem", cnt, facility_text)
-        if cnt == 0:
-            # debug: dump 所有 listitem 文本帮定位实际可选项
-            all_items = page.get_by_role("listitem").all()
-            texts = [item.text_content()[:100].strip() for item in all_items]
-            log.error("listitem '%s' 未找到. 当前共 %d 个 listitem, 文本(前30): %s",
-                      facility_text, len(all_items), texts[:30])
-            screenshot(page, "no_facility_listitem")
-            raise RuntimeError(
-                f"找不到 facility listitem '{facility_text}'. "
-                f"实际有 {len(all_items)} 个 listitem. 看 log + 截图核对正确文本"
-            )
-        facility_locator.first.click()
+    log.info("找到 %d 个匹配 '%s' 的 listitem", cnt, facility_text)
+    if cnt == 0:
+        # debug: dump 所有 listitem 文本帮定位实际可选项
+        all_items = page.get_by_role("listitem").all()
+        texts = [item.text_content()[:100].strip() for item in all_items]
+        log.error("listitem '%s' 未找到. 当前共 %d 个 listitem, 文本(前30): %s",
+                  facility_text, len(all_items), texts[:30])
+        screenshot(page, "no_facility_listitem")
+        raise RuntimeError(
+            f"找不到 facility listitem '{facility_text}'. "
+            f"实际有 {len(all_items)} 个 listitem. 看 log + 截图核对正确文本"
+        )
+    facility_locator.first.click()
 
-        # 6. 点 #event0 (第一个 event 卡片) 打开日期/时间选择器
-        # RIOC 在 08:00:00 那刻 server overload, #event0 渲染可能延迟 30+ 秒
-        # timeout 缩到 10s, 让上层 reload-and-retry-same-pref 接管 (实测 ~33s 后 #event0 即刻渲染)
-        page.locator("#event0").click(timeout=10000)
+    # 6. 点 #event0 (第一个 event 卡片) 打开日期/时间选择器
+    # RIOC 在 08:00:00 那刻 server overload, #event0 渲染可能延迟 30+ 秒
+    # timeout 缩到 10s, 让上层 reload-and-retry-same-pref 接管 (实测 ~33s 后 #event0 即刻渲染)
+    page.locator("#event0").click(timeout=10000)
 
     # 7. 选目标日 — 关键: RIOC 在 release_time 前会把目标日标灰 disabled.
     # 如果 link 不存在 / 不可点, 等到 release_time + 1s (RIOC 服务器开放) 再点.
@@ -260,7 +251,7 @@ def fill_form(page, target_date_iso: str, start_hour: int, end_hour: int,
     # 9. 关闭可能的下拉 + Add & Confirm
     page.locator("body").click()
     page.get_by_role("button", name="Add & Confirm").click()
-    time.sleep(0.5)  # 等表单 reflow + RIOC server check 返回 (实测 ~300ms 够)
+    time.sleep(1)  # 等表单 reflow
 
     # 9c. 检测 RIOC "not available" 红字告警 — 出现就立即放弃这个 slot
     body_text = page.locator("body").inner_text(timeout=2000).lower()
@@ -299,7 +290,7 @@ def fill_form(page, target_date_iso: str, start_hour: int, end_hour: int,
     # 11. 勾 accept terms
     page.wait_for_selector("#acceptTerms", timeout=5000)
     page.locator("#acceptTerms").check()
-    # (旧版有 sleep(0.5), 已删: 下方 for retry 20 次每次 0.5s 已自带轮询, 不需要额外 sleep)
+    time.sleep(0.5)
 
     # 12. 等 Submit 按钮变 enabled (Permit Questions 填全 + acceptTerms 勾上之后)
     log.info("等 Submit 按钮 enabled...")
@@ -499,51 +490,37 @@ def main() -> int:
 
             # 关键: RIOC 在 release_time 前会标灰目标日, 所以 fill_form 必须在
             # release_time 之后跑 (否则点不到日期). 提前导航 + 等到点再填.
-            log.info("提前导航 + 预热到日历 modal 打开 (FAST PATH, 5-21 优化)...")
+            log.info("提前导航 + 等到释放时间 %s...", release)
             try:
+                # 提前导航用 domcontentloaded (不依赖 networkidle, 服务器繁忙时永远不 idle)
                 page.goto("https://rioc.civicpermits.com/Permits/New",
                           wait_until="domcontentloaded", timeout=15000)
+                # 关键: 预先填 Activity + Location, 让 Add Facility 按钮 JS handler 提前注册
+                # 这样 08:00:00 click Add Facility 时不会因为 server 繁忙 JS 没绑定而失效
+                page.get_by_role("textbox", name="Activity", exact=True).fill(cfg["activity_keyword"])
+                page.get_by_label("Location Requested").select_option(cfg["location_uuid"])
+                time.sleep(2)
+                # 预热 click Add Facility, 看 modal 弹出后 Cancel 它 (UI 重置, JS handler 已 warmed)
                 try:
-                    # FAST PATH 预热: 一路走到 #event0 click 把日历 modal 打开.
-                    # release 后 fill_form 检测到 startHour select 存在, 直接跳到日期 click,
-                    # 省去 Activity/Location/Add Facility/#event0 ~10 秒.
-                    page.get_by_role("textbox", name="Activity", exact=True).fill(cfg["activity_keyword"])
-                    page.get_by_label("Location Requested").select_option(cfg["location_uuid"])
-                    time.sleep(1.5)  # JS handler 异步绑定
-
-                    add_btn = page.get_by_role("button", name="Add Facility")
-                    add_btn.wait_for(state="visible", timeout=8000)
-                    add_btn.click(force=True)
-
-                    facility_locator = page.get_by_role("listitem").filter(
-                        has_text=re.compile(cfg["facility_listitem_text"], re.I)
-                    )
-                    # 等 listitem 出现 (最多 4s)
-                    for _ in range(16):
-                        if facility_locator.count() > 0:
-                            break
-                        time.sleep(0.25)
-                    if facility_locator.count() == 0:
-                        raise RuntimeError("预热: 'Tennis Courts' listitem 4s 内未出现")
-                    facility_locator.first.click()
-
-                    # click #event0 打开日历 modal — 这是关键加速点
-                    page.locator("#event0").wait_for(state="visible", timeout=8000)
-                    page.locator("#event0").click(timeout=8000)
-                    # 验证日历 modal 真打开 (startHour select 是 fill_form fast-path 检测信号)
-                    page.wait_for_selector('select[name="startHour"]', timeout=5000)
-                    log.info("✓ 预热到日历 modal 打开 (FAST PATH 启用, 预期 release 后 fill_form ~5s)")
+                    warmup_btn = page.get_by_role("button", name="Add Facility")
+                    if warmup_btn.count() > 0:
+                        warmup_btn.click(force=True)
+                        time.sleep(2)
+                        # Cancel 这次 dummy Add Facility (按钮通常是 "Cancel")
+                        cancel = page.get_by_role("button", name=re.compile(r"^cancel$", re.I))
+                        if cancel.count() > 0:
+                            cancel.first.click()
+                            log.info("✓ Add Facility 预热完成 (modal warm 后 cancel)")
+                            time.sleep(1)
+                        else:
+                            # 没 Cancel, reload 重置
+                            page.reload(wait_until="domcontentloaded", timeout=10000)
+                            time.sleep(1.5)
+                            page.get_by_role("textbox", name="Activity", exact=True).fill(cfg["activity_keyword"])
+                            page.get_by_label("Location Requested").select_option(cfg["location_uuid"])
+                            log.info("✓ Add Facility 预热 + reload 重置完成")
                 except Exception as e:
-                    log.warning("FAST PATH 预热失败, 回退 SLOW PATH 兜底: %s", str(e)[:120])
-                    # SLOW PATH 兜底: 至少把 Activity/Location 暖一下, fill_form 走老流程
-                    try:
-                        page.reload(wait_until="domcontentloaded", timeout=10000)
-                        time.sleep(1.5)
-                        page.get_by_role("textbox", name="Activity", exact=True).fill(cfg["activity_keyword"])
-                        page.get_by_label("Location Requested").select_option(cfg["location_uuid"])
-                        log.info("✓ SLOW PATH fallback: Activity/Location 已填")
-                    except Exception as e2:
-                        log.warning("SLOW PATH fallback 也失败 (non-fatal): %s", str(e2)[:80])
+                    log.warning("预热失败 (non-fatal): %s", e)
             except PlaywrightTimeoutError:
                 log.warning("提前导航 timeout, 继续等到点再尝试")
             wait_until(release)
