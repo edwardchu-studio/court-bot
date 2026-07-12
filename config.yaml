@@ -1,50 +1,40 @@
-# 网球场预约配置
-# 编辑这里调整偏好；reserve.py 会读这个文件
-
-# 网站
-url: "https://rioc.civicpermits.com/Permits/New"
-
-# 抢位策略
-target_offset_days: 2          # T-N: 抢 N 天后的 (周四抢周六 = 2)
-release_time:                  # 释放窗口开放时间 (NY local)
+# 网球场预约配置 (由管理台生成 — 手动编辑也 OK, reserve.py 直接读这个文件)
+url: https://rioc.civicpermits.com/Permits/New
+target_offset_days: 2
+release_time:
   hour: 8
   minute: 0
   second: 0
-
-# RIOC civicpermits 固定参数 (从你 codegen 提取)
-activity_keyword: "Tennis"
-location_uuid: "3c9230f0-9e2c-4ff0-8ad7-5300eb475af5"
-facility_listitem_text: "Tennis Courts"
-
-# 偏好时段 (优先级从高到低 — 第一个抢不到自动试下一个)
-# start_hour / end_hour: 24h 制 (9=9AM, 10=10AM, 14=2PM)
-# 默认每段 1 小时 (end = start + 1). 想 2 小时就 end_hour = start_hour + 2.
+activity_keyword: Tennis
+location_uuid: 3c9230f0-9e2c-4ff0-8ad7-5300eb475af5
+facility_listitem_text: Tennis Courts
 preferences:
-  - { start_hour: 15, end_hour: 16, label: "3-4 PM" }    # 最优先 (周六目标)
-  - { start_hour: 16, end_hour: 17, label: "4-5 PM" }
-  - { start_hour: 17, end_hour: 18, label: "5-6 PM" }
-  - { start_hour: 18, end_hour: 19, label: "6-7 PM" }
-
-# Permit Questions 必填字段答案 (RIOC 要求, 不填 Submit 灰色 disabled)
-# 答案要简短真实, 后续 RIOC 审核可能看, 别写假
+- start_hour: 15
+  end_hour: 16
+  label: 3-4 PM
+- start_hour: 16
+  end_hour: 17
+  label: 4-5 PM
+- start_hour: 17
+  end_hour: 18
+  label: 5-6 PM
+- start_hour: 18
+  end_hour: 19
+  label: 6-7 PM
 permit_answers:
-  activity_description: "Recreational tennis play with friends"
-  num_people: "2"
-  participants_charged: "No"
-  spectators_charged: "No"
-  prior_permit: "Yes"                # 5-14/15/16 已抢成功多次, 写 Yes 与 server 历史一致
-  amplified_sound: "No"
-  advertised: "No"
-  on_site_security: "No"
-  parking_needs: "None"
-
-# 抢位行为
-max_attempts: 40               # 8:00 后最多重试次数
-retry_interval_ms: 500         # 重试间隔
-attempt_timeout_sec: 90        # 总超时 (60-90s 内必须出结果)
-
-# Telegram 通知 (从 .env 读取 TG_BOT_TOKEN / TG_CHAT_ID)
+  activity_description: Recreational tennis play with friends
+  num_people: '2'
+  participants_charged: 'No'
+  spectators_charged: 'No'
+  prior_permit: 'Yes'
+  amplified_sound: 'No'
+  advertised: 'No'
+  on_site_security: 'No'
+  parking_needs: None
+max_attempts: 40
+retry_interval_ms: 500
+attempt_timeout_sec: 90
 notify_on_start: true
 notify_on_success: true
 notify_on_failure: true
-screenshot_on_error: true       # 出错时存截图到 logs/
+screenshot_on_error: true

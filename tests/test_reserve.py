@@ -163,3 +163,111 @@ def test_no_networkidle_wait_until():
         "禁用 wait_until='networkidle' — RIOC 在 08:00 抢券峰永远不会 idle, "
         "页面 timeout 错过窗口 (2026-05-14 事故)."
     )
+
+
+# ── check_cookies.py 预检脚本 (2026-07-07 加, 防 cookies 静默失效一个月) ──
+
+def test_check_cookies_importable():
+    """check_cookies.py 可 import 且关键常量正确."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "check_cookies", Path(__file__).parent.parent / "check_cookies.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.AGE_WARN_DAYS == 25
+    assert "login_persist.py" in mod.FIX_CMD
+    assert "/Permits/New" in mod.URL
+
+
+def test_cookiecheck_launchd_plist_exists():
+    """cookiecheck launchd plist 存在且每天 20:00 跑."""
+    from pathlib import Path
+    p = Path.home() / "Library/LaunchAgents/me.tennis-bot-cookiecheck.plist"
+    assert p.exists(), "cookiecheck plist 被删了 — cookies 失效将再次静默一个月"
+    content = p.read_text()
+    assert "<integer>20</integer>" in content
+    assert "check_cookies.py" in content
+
+
+# ── webui (2026-07-12): 管理台 API ──
+
+def _client(tmp_path, monkeypatch):
+    import shutil, sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from fastapi.testclient import TestClient
+    from webui import server
+    # 隔离 config: 拷贝真实 config 到 tmp
+    tmp_cfg = tmp_path / "config.yaml"
+    shutil.copy2(server.CONFIG_PATH, tmp_cfg)
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_cfg)
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    return TestClient(server.app), server, tmp_cfg
+
+
+def test_webui_config_roundtrip(tmp_path, monkeypatch):
+    """UI 保存后的 config.yaml 必须保留 reserve.py 需要的全部字段."""
+    client, server, tmp_cfg = _client(tmp_path, monkeypatch)
+    r = client.patch("/api/config", json={
+        "preferences": [{"start_hour": 15, "end_hour": 16, "label": "3-4 PM"}],
+        "target_offset_days": 3,
+    })
+    assert r.status_code == 200
+    import yaml
+    cfg = yaml.safe_load(tmp_cfg.read_text())
+    # reserve.py 依赖的关键字段一个都不能丢
+    for key in ("url", "activity_keyword", "location_uuid", "facility_listitem_text",
+                "permit_answers", "release_time", "max_attempts", "preferences",
+                "target_offset_days"):
+        assert key in cfg, f"字段 {key} 在 UI 写回后丢失 — reserve.py 会崩"
+    assert cfg["target_offset_days"] == 3
+    assert cfg["preferences"][0]["start_hour"] == 15
+
+
+def test_webui_config_validation(tmp_path, monkeypatch):
+    client, *_ = _client(tmp_path, monkeypatch)
+    assert client.patch("/api/config", json={"preferences": []}).status_code == 400
+    assert client.patch("/api/config", json={
+        "preferences": [{"start_hour": 23, "end_hour": 24}]}).status_code == 400
+    assert client.patch("/api/config", json={"target_offset_days": 99}).status_code == 400
+    assert client.patch("/api/config", json={"max_attempts": 0}).status_code == 400
+
+
+def test_webui_config_backup_created(tmp_path, monkeypatch):
+    client, server, tmp_cfg = _client(tmp_path, monkeypatch)
+    client.patch("/api/config", json={"max_attempts": 50})
+    baks = list(tmp_path.glob("config.yaml.bak_*"))
+    assert len(baks) == 1, "每次保存必须先备份"
+
+
+def test_webui_log_path_traversal_blocked(tmp_path, monkeypatch):
+    client, *_ = _client(tmp_path, monkeypatch)
+    assert client.get("/api/logs/..%2F..%2Fetc%2Fpasswd").status_code in (400, 404)
+    assert client.get("/api/logs/../auth.json").status_code in (400, 404)
+
+
+def test_webui_status_shape(tmp_path, monkeypatch):
+    client, *_ = _client(tmp_path, monkeypatch)
+    s = client.get("/api/status").json()
+    assert "cookies" in s and "bots" in s and "next_run" in s
+    assert set(s["bots"].keys()) == {"daily", "court1", "court2", "court3", "cookiecheck"}
+
+
+def test_no_auth_writeback_in_reserve():
+    """2026-07-12 事故: reserve.py 回写 auth.json 会把 30 天 persistent cookie
+    换成 ~48h session cookie → 2 天后全线失效. 严禁恢复回写."""
+    from pathlib import Path
+    src = (Path(__file__).parent.parent / "reserve.py").read_text()
+    import re
+    active_writeback = re.findall(r"^\s*ctx\.storage_state\(path=AUTH_PATH\)", src, re.M)
+    assert not active_writeback, "reserve.py 恢复了 auth.json 回写 — 会导致 cookies 2 天失效"
+
+
+def test_cookiecheck_runs_morning_and_evening():
+    """预检必须早晚双跑: 20:00 (给当晚修复时间) + 07:30 (抢位前最后一道岗)."""
+    from pathlib import Path
+    p = Path.home() / "Library/LaunchAgents/me.tennis-bot-cookiecheck.plist"
+    content = p.read_text()
+    assert "<integer>20</integer>" in content
+    assert "<integer>7</integer>" in content and "<integer>30</integer>" in content

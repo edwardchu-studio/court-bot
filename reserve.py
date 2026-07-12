@@ -628,8 +628,11 @@ def main() -> int:
                 tg_push(msg)
                 log.error(msg)
 
-            # 4. 刷新 auth (cookies 可能更新)
-            ctx.storage_state(path=AUTH_PATH)
+            # 4. 【2026-07-12 事故修复】禁止回写 auth.json!
+            # 原逻辑 ctx.storage_state(path=AUTH_PATH) 会把 login_persist 的 30 天
+            # persistent cookie 替换成服务器 rotate 后的 ~48h 短命 session cookie:
+            # 7/10 08:02 回写 → 7/12 08:00 失效 (5/22→6/9 同一模式)。
+            # login_persist.py 的原始 cookie 保持不动才能活满 30 天。
 
             browser.close()
             return 0 if success else 1

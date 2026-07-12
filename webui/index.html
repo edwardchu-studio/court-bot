@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Court Bot 管理台</title>
+<style>
+:root {
+  --black: #0b0b0d; --black-2: #141417; --black-3: #1d1d22;
+  --white: #f2efe6; --dim: #b8b4a8;
+  --gold: #c9a227; --gold-b: #e8c95a; --gold-dim: rgba(201,162,39,.28);
+  --green: #9bc53d; --red: #d05050; --amber: #d0873e;
+  --sans: -apple-system, "PingFang SC", sans-serif;
+  --serif: "Songti SC", "Noto Serif SC", serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--black); color:var(--white); font-family:var(--sans); min-height:100vh; }
+header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 30px; border-bottom:1px solid var(--gold-dim);
+  background:linear-gradient(180deg,#101013,var(--black));
+  position:sticky; top:0; z-index:10;
+}
+h1 { font-family:var(--serif); font-size:22px; letter-spacing:6px; color:var(--gold); }
+h1 .ball { color:var(--green); }
+#next-run { font-size:12px; color:var(--dim); letter-spacing:1px; }
+#next-run b { color:var(--gold-b); }
+
+main { max-width:1000px; margin:0 auto; padding:24px 20px 60px; display:flex; flex-direction:column; gap:22px; }
+.card {
+  background:var(--black-2); border:1px solid var(--gold-dim); border-radius:12px;
+  padding:20px 22px;
+}
+.card h2 {
+  font-family:var(--serif); font-size:15px; letter-spacing:4px; color:var(--gold);
+  margin-bottom:16px; display:flex; align-items:center; justify-content:space-between;
+}
+.row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+
+/* pills & buttons */
+.pill { font-size:11px; padding:3px 12px; border-radius:999px; border:1px solid; letter-spacing:1px; }
+.pill.ok { color:var(--green); border-color:var(--green); }
+.pill.warn { color:var(--amber); border-color:var(--amber); }
+.pill.bad { color:var(--red); border-color:var(--red); }
+button {
+  background:none; border:1px solid var(--gold-dim); color:var(--dim);
+  border-radius:7px; padding:7px 14px; font-size:12px; cursor:pointer; transition:.2s;
+  letter-spacing:1px; font-family:var(--sans);
+}
+button:hover:not(:disabled) { color:var(--gold-b); border-color:var(--gold); }
+button:disabled { opacity:.35; cursor:not-allowed; }
+button.primary { background:var(--gold); color:var(--black); border:none; font-weight:600; }
+button.primary:hover { background:var(--gold-b); color:var(--black); }
+button.danger:hover { color:var(--red); border-color:var(--red); }
+
+/* toggle */
+.toggle { position:relative; width:40px; height:22px; cursor:pointer; flex-shrink:0; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle .tk {
+  position:absolute; inset:0; background:var(--black-3); border:1px solid var(--gold-dim);
+  border-radius:999px; transition:.25s;
+}
+.toggle .tk::before {
+  content:""; position:absolute; width:14px; height:14px; border-radius:50%;
+  background:var(--dim); top:3px; left:3px; transition:.25s;
+}
+.toggle input:checked + .tk { background:rgba(155,197,61,.2); border-color:var(--green); }
+.toggle input:checked + .tk::before { transform:translateX(18px); background:var(--green); }
+
+/* bots list */
+.bot-row {
+  display:flex; align-items:center; gap:14px; padding:11px 4px;
+  border-bottom:1px solid rgba(201,162,39,.1);
+}
+.bot-row:last-child { border-bottom:none; }
+.bot-name { flex:1; font-size:14px; }
+.bot-name small { display:block; color:var(--dim); font-size:11px; margin-top:2px; }
+
+/* prefs */
+.pref-row {
+  display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:8px;
+  background:var(--black-3); border-radius:8px; border:1px solid transparent;
+}
+.pref-row.first { border-color:var(--gold-dim); }
+.pref-rank { font-family:var(--serif); color:var(--gold); width:26px; text-align:center; font-size:15px; }
+.pref-row select, .pref-row input, .field input, .field select, .pa-row input {
+  background:var(--black); border:1px solid var(--gold-dim); color:var(--white);
+  border-radius:6px; padding:7px 10px; font-size:13px; outline:none;
+}
+.pref-row select:focus, .field input:focus { border-color:var(--gold); }
+.pref-label { flex:1; }
+.mini { padding:4px 9px; font-size:11px; }
+
+/* fields grid */
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; }
+.field label { display:block; font-size:11px; color:var(--dim); letter-spacing:1px; margin-bottom:6px; }
+.field input, .field select { width:100%; }
+.hint { font-size:11px; color:var(--dim); margin-top:8px; line-height:1.6; }
+
+/* permit answers */
+.pa-row { display:flex; gap:10px; margin-bottom:8px; align-items:center; }
+.pa-row .k { width:210px; font-size:12px; color:var(--dim); }
+.pa-row input { flex:1; }
+
+/* history */
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; color:var(--dim); font-size:11px; letter-spacing:1px; padding:6px 8px; border-bottom:1px solid var(--gold-dim); }
+td { padding:9px 8px; border-bottom:1px solid rgba(201,162,39,.08); }
+.r-success { color:var(--green); }
+.r-unavailable { color:var(--dim); }
+.r-cookie_expired { color:var(--red); }
+.r-unknown { color:var(--amber); }
+a.shot { color:var(--gold); text-decoration:none; font-size:11px; margin-right:6px; }
+a.shot:hover { color:var(--gold-b); }
+
+/* 实时直播 */
+#live-card { border-color:var(--gold-dim); transition:border-color .4s; }
+#live-card.running { border-color:var(--green); box-shadow:0 0 22px rgba(155,197,61,.12); }
+#live-status { display:flex; align-items:center; gap:10px; font-size:13px; }
+.dot { width:9px; height:9px; border-radius:50%; background:var(--dim); flex-shrink:0; }
+.dot.on { background:var(--green); animation:blink 1.1s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:.35} 50%{opacity:1} }
+#live-log {
+  background:#000; border:1px solid var(--gold-dim); border-radius:8px;
+  height:280px; overflow-y:auto; padding:12px 14px; margin-top:12px;
+  font-family:"SF Mono", Menlo, monospace; font-size:11.5px; line-height:1.75;
+  white-space:pre-wrap; word-break:break-all; color:#9a978c;
+}
+#live-log .lw { color:var(--amber); }
+#live-log .le { color:var(--red); }
+#live-log .ls { color:var(--green); font-weight:600; }
+#live-log .li { color:#c8c5b8; }
+#live-log:empty::before { content:"等待执行 — 07:55 自动启动, 或点上方「立即跑一次」"; color:#555; }
+
+#toast {
+  position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+  background:var(--black-3); border:1px solid var(--gold); color:var(--gold-b);
+  padding:10px 24px; border-radius:8px; font-size:13px; opacity:0; transition:.3s; z-index:99;
+  pointer-events:none; letter-spacing:1px;
+}
+#toast.show { opacity:1; }
+.savebar { margin-top:14px; display:flex; gap:10px; }
+::-webkit-scrollbar { width:8px; } ::-webkit-scrollbar-thumb { background:var(--black-3); border-radius:4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="ball">●</span> COURT BOT 管理台</h1>
+  <div id="next-run">加载中…</div>
+</header>
+
+<main>
+  <!-- cookies 状态 -->
+  <div class="card">
+    <h2>COOKIES 状态 <button class="mini" onclick="checkCookies(this)">立即验证 (~15s)</button></h2>
+    <div class="row" id="cookies-box">加载中…</div>
+    <div class="hint">cookies 有效期约 30 天。过期后需在终端跑
+      <code style="color:var(--gold-b)">cd ~/projects/court-bot && .venv/bin/python login_persist.py</code>
+      手动登录刷新 (涉及输入密码, 无法在网页完成)。每晚 20:00 自动预检, 失效会发 TG 提醒。</div>
+  </div>
+
+  <!-- 实时执行直播 -->
+  <div class="card" id="live-card">
+    <h2>实时执行 <span id="live-file" style="font-size:10px;color:var(--dim);letter-spacing:0"></span></h2>
+    <div id="live-status"><span class="dot" id="live-dot"></span><span id="live-text">空闲</span></div>
+    <div id="live-log"></div>
+  </div>
+
+  <!-- 调度开关 -->
+  <div class="card">
+    <h2>调度开关</h2>
+    <div id="bots-box">加载中…</div>
+    <div class="hint">"立即跑一次" 会真实执行抢位并提交 permit — 只在你确定要抢当前 T+N 目标日时使用。</div>
+  </div>
+
+  <!-- 偏好时段 -->
+  <div class="card">
+    <h2>偏好时段 (第 1 优先, 抢不到自动降级)</h2>
+    <div id="prefs-box"></div>
+    <div class="savebar">
+      <button class="mini" onclick="addPref()">+ 添加时段</button>
+      <button class="primary" onclick="savePrefs()">保存偏好</button>
+    </div>
+  </div>
+
+  <!-- 抢位参数 -->
+  <div class="card">
+    <h2>抢位参数</h2>
+    <div class="grid">
+      <div class="field"><label>提前天数 T+N (2 = 周四抢周六)</label><input type="number" id="p-offset" min="0" max="14"></div>
+      <div class="field"><label>释放时刻 · 时 (ET)</label><input type="number" id="p-rel-h" min="0" max="23"></div>
+      <div class="field"><label>释放时刻 · 分</label><input type="number" id="p-rel-m" min="0" max="59"></div>
+      <div class="field"><label>最大重试次数</label><input type="number" id="p-attempts" min="1" max="200"></div>
+      <div class="field"><label>重试间隔 (ms)</label><input type="number" id="p-interval" min="100" max="10000" step="100"></div>
+      <div class="field"><label>总超时 (秒)</label><input type="number" id="p-timeout" min="30" max="600"></div>
+    </div>
+    <div class="savebar"><button class="primary" onclick="saveParams()">保存参数</button></div>
+  </div>
+
+  <!-- 通知 -->
+  <div class="card">
+    <h2>通知 (Telegram) <button class="mini" onclick="tgTest(this)">发测试消息</button></h2>
+    <div class="row" style="gap:26px" id="notify-box">
+      <label class="row" style="gap:8px"><span class="toggle"><input type="checkbox" id="n-start"><span class="tk"></span></span> 启动时通知</label>
+      <label class="row" style="gap:8px"><span class="toggle"><input type="checkbox" id="n-success"><span class="tk"></span></span> 抢到通知</label>
+      <label class="row" style="gap:8px"><span class="toggle"><input type="checkbox" id="n-failure"><span class="tk"></span></span> 失败通知</label>
+      <label class="row" style="gap:8px"><span class="toggle"><input type="checkbox" id="n-shot"><span class="tk"></span></span> 出错存截图</label>
+    </div>
+    <div class="savebar"><button class="primary" onclick="saveNotify()">保存通知设置</button></div>
+  </div>
+
+  <!-- Permit 答案 -->
+  <div class="card">
+    <h2>Permit 申请答案 (RIOC 必填, 审核可能会看)</h2>
+    <div id="pa-box"></div>
+    <div class="savebar"><button class="primary" onclick="savePermit()">保存答案</button></div>
+  </div>
+
+  <!-- 历史 -->
+  <div class="card">
+    <h2>抢位历史 <button class="mini" onclick="loadHistory()">刷新</button></h2>
+    <table>
+      <thead><tr><th>执行日</th><th>目标日</th><th>结果</th><th>详情</th><th>证据</th></tr></thead>
+      <tbody id="history-box"></tbody>
+    </table>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let CFG = null;
+
+function toast(msg, ok=true) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.style.borderColor = ok ? "var(--gold)" : "var(--red)";
+  t.style.color = ok ? "var(--gold-b)" : "var(--red)";
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2600);
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) { const e = await r.json().catch(()=>({detail:r.status})); throw new Error(e.detail); }
+  return r.json();
+}
+
+// ── 状态 ──
+async function loadStatus() {
+  const s = await api("/api/status");
+  // cookies
+  const c = s.cookies;
+  const cls = c.health === "ok" ? "ok" : (c.health === "warn" ? "warn" : "bad");
+  const txt = !c.exists ? "auth.json 不存在" :
+    `${c.health === "ok" ? "健康" : c.health === "warn" ? "即将过期" : "已过期"} · ${c.age_days} 天 (${c.updated_at} 更新)`;
+  $("cookies-box").innerHTML = `<span class="pill ${cls}">${txt}</span><span id="cookie-verdict" style="font-size:12px;color:var(--dim)"></span>`;
+  // bots
+  $("bots-box").innerHTML = Object.entries(s.bots).map(([id, b]) => `
+    <div class="bot-row">
+      <label class="toggle"><input type="checkbox" ${b.enabled ? "checked" : ""}
+        onchange="toggleBot('${id}', this)"><span class="tk"></span></label>
+      <div class="bot-name">${b.label}<small>${b.plist} · ${b.court}</small></div>
+      <span class="pill ${b.enabled ? "ok" : "bad"}">${b.enabled ? "启用" : "停用"}</span>
+      <button class="mini" onclick="kickstart('${id}', this)">立即跑一次</button>
+    </div>`).join("");
+  // next run
+  $("next-run").innerHTML = `释放 <b>${s.next_run.time}</b> · 下一目标日 <b>${s.next_run.target_date}</b> (T+${s.next_run.offset_days})`;
+}
+async function toggleBot(id, el) {
+  try {
+    await api(`/api/bots/${id}/toggle`, { method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ enabled: el.checked }) });
+    toast(el.checked ? "已启用" : "已停用");
+    loadStatus();
+  } catch(e) { toast("失败: " + e.message, false); el.checked = !el.checked; }
+}
+async function kickstart(id, btn) {
+  if (!confirm("确认立即真实执行一次抢位? 会向 RIOC 提交 permit 申请!")) return;
+  btn.disabled = true;
+  try { await api(`/api/bots/${id}/kickstart`, { method:"POST" }); toast("已触发, 结果看 TG / 历史"); }
+  catch(e) { toast("失败: " + e.message, false); }
+  btn.disabled = false;
+}
+async function checkCookies(btn) {
+  btn.disabled = true; btn.textContent = "验证中…";
+  try {
+    const r = await api("/api/cookies/check", { method:"POST" });
+    $("cookie-verdict").textContent = r.valid ? "✓ 实测有效" : "✗ 实测失效 — 需重跑 login_persist.py";
+    $("cookie-verdict").style.color = r.valid ? "var(--green)" : "var(--red)";
+    toast(r.valid ? "cookies 有效" : "cookies 已失效!", r.valid);
+  } catch(e) { toast("验证出错: " + e.message, false); }
+  btn.disabled = false; btn.textContent = "立即验证 (~15s)";
+}
+async function tgTest(btn) {
+  btn.disabled = true;
+  try { await api("/api/tg/test", { method:"POST" }); toast("测试消息已发, 查看 Telegram"); }
+  catch(e) { toast("发送失败: " + e.message, false); }
+  btn.disabled = false;
+}
+
+// ── 配置 ──
+function hourLabel(h) { return `${h % 12 || 12} ${h >= 12 ? "PM" : "AM"}`; }
+function renderPrefs(prefs) {
+  $("prefs-box").innerHTML = prefs.map((p, i) => `
+    <div class="pref-row ${i === 0 ? "first" : ""}" data-i="${i}">
+      <span class="pref-rank">${i + 1}</span>
+      <select class="ph-start" onchange="syncEnd(this)">
+        ${Array.from({length:16},(_,k)=>k+6).map(h =>
+          `<option value="${h}" ${h===p.start_hour?"selected":""}>${hourLabel(h)}</option>`).join("")}
+      </select>
+      <span style="color:var(--dim)">→</span>
+      <select class="ph-end">
+        ${Array.from({length:16},(_,k)=>k+7).map(h =>
+          `<option value="${h}" ${h===p.end_hour?"selected":""}>${hourLabel(h)}</option>`).join("")}
+      </select>
+      <input class="pref-label ph-label" value="${p.label || ""}" placeholder="标签 (自动生成可留空)">
+      <button class="mini" onclick="movePref(${i},-1)" ${i===0?"disabled":""}>↑</button>
+      <button class="mini" onclick="movePref(${i},1)" ${i===prefs.length-1?"disabled":""}>↓</button>
+      <button class="mini danger" onclick="delPref(${i})" ${prefs.length<=1?"disabled":""}>✕</button>
+    </div>`).join("");
+}
+function collectPrefs() {
+  return [...document.querySelectorAll(".pref-row")].map(row => {
+    const s = parseInt(row.querySelector(".ph-start").value);
+    const e = parseInt(row.querySelector(".ph-end").value);
+    const l = row.querySelector(".ph-label").value.trim();
+    return { start_hour: s, end_hour: e, label: l || `${hourLabel(s)}-${hourLabel(e)}` };
+  });
+}
+function syncEnd(sel) {
+  const row = sel.closest(".pref-row");
+  row.querySelector(".ph-end").value = parseInt(sel.value) + 1;
+}
+function movePref(i, d) { const p = collectPrefs(); [p[i], p[i+d]] = [p[i+d], p[i]]; renderPrefs(p); }
+function delPref(i) { const p = collectPrefs(); p.splice(i, 1); renderPrefs(p); }
+function addPref() { const p = collectPrefs(); p.push({ start_hour: 17, end_hour: 18, label: "" }); renderPrefs(p); }
+async function savePrefs() {
+  try {
+    const prefs = collectPrefs();
+    for (const p of prefs) if (p.end_hour <= p.start_hour) return toast("结束须晚于开始", false);
+    CFG = await api("/api/config", { method:"PATCH", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ preferences: prefs }) });
+    toast("偏好已保存 (下次抢位生效)"); renderPrefs(CFG.preferences);
+  } catch(e) { toast("保存失败: " + e.message, false); }
+}
+async function saveParams() {
+  try {
+    CFG = await api("/api/config", { method:"PATCH", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        target_offset_days: parseInt($("p-offset").value),
+        release_time: { hour: parseInt($("p-rel-h").value), minute: parseInt($("p-rel-m").value), second: 0 },
+        max_attempts: parseInt($("p-attempts").value),
+        retry_interval_ms: parseInt($("p-interval").value),
+        attempt_timeout_sec: parseInt($("p-timeout").value),
+      }) });
+    toast("参数已保存"); loadStatus();
+  } catch(e) { toast("保存失败: " + e.message, false); }
+}
+async function saveNotify() {
+  try {
+    CFG = await api("/api/config", { method:"PATCH", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        notify_on_start: $("n-start").checked,
+        notify_on_success: $("n-success").checked,
+        notify_on_failure: $("n-failure").checked,
+        screenshot_on_error: $("n-shot").checked,
+      }) });
+    toast("通知设置已保存");
+  } catch(e) { toast("保存失败: " + e.message, false); }
+}
+function renderPermit(pa) {
+  const names = {
+    activity_description: "活动描述", num_people: "人数", participants_charged: "参与者收费?",
+    spectators_charged: "观众收费?", prior_permit: "曾获 permit?", amplified_sound: "扩音设备?",
+    advertised: "对外宣传?", on_site_security: "现场安保?", parking_needs: "停车需求",
+  };
+  $("pa-box").innerHTML = Object.entries(pa).map(([k, v]) => `
+    <div class="pa-row"><span class="k">${names[k] || k}<br><small style="color:#555">${k}</small></span>
+    <input data-k="${k}" value="${v}"></div>`).join("");
+}
+async function savePermit() {
+  const pa = {};
+  document.querySelectorAll("#pa-box input").forEach(i => pa[i.dataset.k] = i.value);
+  try {
+    CFG = await api("/api/config", { method:"PATCH", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ permit_answers: pa }) });
+    toast("Permit 答案已保存");
+  } catch(e) { toast("保存失败: " + e.message, false); }
+}
+async function loadConfig() {
+  CFG = await api("/api/config");
+  renderPrefs(CFG.preferences || []);
+  $("p-offset").value = CFG.target_offset_days ?? 2;
+  $("p-rel-h").value = CFG.release_time?.hour ?? 8;
+  $("p-rel-m").value = CFG.release_time?.minute ?? 0;
+  $("p-attempts").value = CFG.max_attempts ?? 40;
+  $("p-interval").value = CFG.retry_interval_ms ?? 500;
+  $("p-timeout").value = CFG.attempt_timeout_sec ?? 90;
+  $("n-start").checked = CFG.notify_on_start !== false;
+  $("n-success").checked = CFG.notify_on_success !== false;
+  $("n-failure").checked = CFG.notify_on_failure !== false;
+  $("n-shot").checked = CFG.screenshot_on_error !== false;
+  renderPermit(CFG.permit_answers || {});
+}
+
+// ── 历史 ──
+async function loadHistory() {
+  const h = await api("/api/history");
+  const names = { success: "✅ 抢到", unavailable: "— 无位", cookie_expired: "🔴 cookies 失效", unknown: "? 未知" };
+  $("history-box").innerHTML = h.map(e => `
+    <tr>
+      <td>${e.run_date}</td><td>${e.target_date || "—"}</td>
+      <td class="r-${e.result}">${names[e.result] || e.result}</td>
+      <td style="color:var(--dim)">${e.detail}</td>
+      <td>
+        <a class="shot" href="/api/logs/${e.log_file}" target="_blank">日志</a>
+        ${e.screenshots.slice(-2).map((s, i) => `<a class="shot" href="/api/logs/${s}" target="_blank">图${i+1}</a>`).join("")}
+      </td>
+    </tr>`).join("");
+}
+
+// ── 实时直播 (SSE) ──
+let wasRunning = false;
+function classifyLine(line) {
+  if (/抢到了|success/i.test(line)) return "ls";
+  if (/ERROR|失败|没抢到|不可用/.test(line)) return "le";
+  if (/WARNING/.test(line)) return "lw";
+  if (/INFO/.test(line)) return "li";
+  return "";
+}
+function appendLog(text) {
+  const box = $("live-log");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const span = document.createElement("span");
+    const cls = classifyLine(line);
+    if (cls) span.className = cls;
+    span.textContent = line + "\n";
+    box.appendChild(span);
+  }
+  // 限制 DOM 大小: 只留最近 600 行
+  while (box.childNodes.length > 600) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+function connectLive() {
+  const es = new EventSource("/api/live/stream");
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.event === "logfile") {
+      $("live-file").textContent = d.name;
+      $("live-log").innerHTML = "";
+    } else if (d.event === "lines") {
+      appendLog(d.text);
+    } else if (d.event === "status") {
+      $("live-dot").className = "dot" + (d.running ? " on" : "");
+      $("live-text").textContent = d.running ? "抢位执行中 — 直播中" : "空闲";
+      $("live-card").classList.toggle("running", d.running);
+      if (wasRunning && !d.running) {   // 刚结束 → 刷新历史和状态
+        toast("本次执行结束, 已刷新历史");
+        loadHistory(); loadStatus();
+      }
+      wasRunning = d.running;
+    }
+  };
+  es.onerror = () => { es.close(); setTimeout(connectLive, 4000); };
+}
+
+loadStatus(); loadConfig(); loadHistory(); connectLive();
+setInterval(loadStatus, 60000);
+</script>
+</body>
+</html>
