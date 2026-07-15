@@ -175,7 +175,7 @@ def test_check_cookies_importable():
         "check_cookies", Path(__file__).parent.parent / "check_cookies.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    assert mod.AGE_WARN_DAYS == 25
+    assert mod.RENEW_WARN_DAYS == 1.5
     assert "login_persist.py" in mod.FIX_CMD
     assert "/Permits/New" in mod.URL
 
@@ -271,3 +271,11 @@ def test_cookiecheck_runs_morning_and_evening():
     content = p.read_text()
     assert "<integer>20</integer>" in content
     assert "<integer>7</integer>" in content and "<integer>30</integer>" in content
+
+
+def test_check_cookies_renews_session():
+    """2026-07-14: RIOC session 生命 ~48h, 预检必须承担续期职责 (成功访问后回写)."""
+    from pathlib import Path
+    src = (Path(__file__).parent.parent / "check_cookies.py").read_text()
+    assert "ctx.storage_state(path=str(AUTH_PATH))" in src, "预检丢失续期回写 — session 将每 48h 死一次"
+    assert "renewed = True" in src
